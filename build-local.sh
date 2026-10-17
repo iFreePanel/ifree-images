@@ -9,7 +9,7 @@ case "$ARCH" in
   arm64) PLATFORM=linux/arm64; GOARCH=aarch64 ;;
   *) echo "arch 仅支持 amd64|arm64"; exit 2 ;;
 esac
-IMAGE=ghcr.io/iFreeshine/php-fpm      # 与 CI 的 github.repository_owner 对齐；迁移仓库后自动跟随
+IMAGE=ghcr.io/ifreepanel/php-fpm     # 与 CI 的 github.repository_owner 对齐（仓库已迁移到 iFreePanel org）
 
 case "$V" in
   5.6) PARENT=ghcr.io/iFreeshine/php-fpm-5.6:stretch ;;
