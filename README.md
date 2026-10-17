@@ -1,6 +1,6 @@
 # ifreepanel-php
 
-iFreePanel 品牌独立的 PHP-FPM 镜像构建仓库。构建源自 `linuxeye/docker-php-fpm`（MIT），已全量参数化并去除上游命名空间。
+iFreePanel 的 PHP-FPM 多版本镜像构建仓库（6 LTS × amd64/arm64）。基础配方基于 `linuxeye/docker-php-fpm`（MIT），在其上做了参数化与容器内配置定制。
 
 ## 产物
 
@@ -44,4 +44,4 @@ docker run --rm ghcr.io/<owner>/php-fpm:8.5-prod php -m
 ## 溯源
 
 - 构建源：linuxeye/docker-php-fpm @ 25387ab（2026-09-09），MIT License（见 LICENSE.md）
-- 与上游差异：FROM 参数化（ARG PARENT_IMAGE）、命名空间品牌替换（用户组/ini 文件名/entrypoint 生成文件名）、labels 作者改为本仓库
+- 定制点：FROM 参数化（ARG PARENT_IMAGE）、容器内用户组与配置文件名调整、labels 指向本仓库
