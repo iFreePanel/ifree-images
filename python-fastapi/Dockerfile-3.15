@@ -5,7 +5,7 @@ FROM python:3.15-slim
 
 LABEL org.opencontainers.image.title="iFreePanel python-fastapi" \
       org.opencontainers.image.description="FastAPI + uvicorn runtime base (python 3.15)" \
-      org.opencontainers.image.source="https://github.com/iFreePanel/ifreepanel-php"
+      org.opencontainers.image.source="https://github.com/iFreePanel/ifree-images"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

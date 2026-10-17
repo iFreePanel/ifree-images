@@ -1,4 +1,4 @@
-# ifreepanel-php
+# ifree-images
 
 iFreePanel 的 PHP-FPM 多版本镜像构建仓库（6 LTS × amd64/arm64）。基础配方基于 `linuxeye/docker-php-fpm`（MIT），在其上做了参数化与容器内配置定制。
 
@@ -25,7 +25,7 @@ iFreePanel 的 PHP-FPM 多版本镜像构建仓库（6 LTS × amd64/arm64）。�
 ## 使用
 
 ```bash
-# 1. 在 GitHub 建仓库（名随意，如 ifreepanel-php），push 本目录
+# 1. 在 GitHub 建仓库（名随意，如 ifree-images），push 本目录
 # 2. Actions → build-php → Run workflow（versions 填 8.5 先试一个）
 # 3. 首次推送后：GitHub → Packages → php-fpm → Package settings → Public
 # 4. 拉取验证
