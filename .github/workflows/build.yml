@@ -1,0 +1,120 @@
+name: build-php
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: "要构建的版本（空格分隔，留空=构建全部矩阵版本）"
+        required: false
+        default: ""
+  push:
+    tags: ["php-v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/php-fpm
+
+jobs:
+  # ---- 版本过滤（matrix 不能在 job 级 if 里引用，先算出矩阵再传给 build） ----
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.set.outputs.versions }}
+    steps:
+      - id: set
+        run: |
+          ALL='["5.6","7.4","8.1","8.2","8.4","8.5"]'
+          INPUT="${{ github.event.inputs.versions }}"
+          if [ "${{ github.event_name }}" = "push" ] || [ -z "$INPUT" ]; then
+            echo "versions=$ALL" >> "$GITHUB_OUTPUT"
+          else
+            V=$(printf '%s\n' "$INPUT" | tr ' ' '\n' | sed '/^$/d; s/.*/"&"/' | paste -sd, -)
+            echo "versions=[$V]" >> "$GITHUB_OUTPUT"
+          fi
+          echo "matrix versions -> $([ -n "$V" ] && echo "$V" || echo "all")"
+
+  build:
+    needs: config
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJson(needs.config.outputs.versions) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---- 5.6/7.4：上游私造基础镜像导入自家 GHCR（crane copy 保留多架构） ----
+      - name: Import legacy custom base (5.6/7.4)
+        if: matrix.version == '5.6' || matrix.version == '7.4'
+        run: |
+          curl -sSfL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz \
+            | tar -xz crane
+          case "${{ matrix.version }}" in
+            5.6) SRC=bypanel/php-fpm-5.6:stretch; DST=${{ env.IMAGE }}-5.6:stretch ;;
+            7.4) SRC=bypanel/php-fpm-7.4:buster;  DST=${{ env.IMAGE }}-7.4:buster ;;
+          esac
+          ./crane copy "$SRC" "$DST"
+
+      # ---- 8.x：base 层从官方 php:{v}-fpm-bookworm 自主构建 ----
+      - name: Build base (8.x)
+        if: startsWith(matrix.version, '8.')
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --provenance=false --sbom=false \
+            --file Dockerfiles/base/Dockerfile-${{ matrix.version }} \
+            --tag ${{ env.IMAGE }}:${{ matrix.version }}-base \
+            --push Dockerfiles/base
+
+      # ---- 解析父镜像与 EXT_DIR（mods 层 COPY 扩展目录所需，与上游逻辑一致） ----
+      - name: Resolve parent image + EXT_DIR
+        id: parent
+        run: |
+          V=${{ matrix.version }}
+          case "$V" in
+            5.6) PARENT=${{ env.IMAGE }}-5.6:stretch ;;
+            7.4) PARENT=${{ env.IMAGE }}-7.4:buster ;;
+            *)   PARENT=${{ env.IMAGE }}:$V-base ;;
+          esac
+          docker pull --platform linux/amd64 "$PARENT"
+          EXT_DIR=$(docker run --rm --platform linux/amd64 --entrypoint=php "$PARENT" \
+            -r 'echo ini_get("extension_dir");')
+          echo "parent=$PARENT"        >> "$GITHUB_OUTPUT"
+          echo "ext_dir=$EXT_DIR"      >> "$GITHUB_OUTPUT"
+          echo "parent=$PARENT  ext_dir=$EXT_DIR"
+
+      # ---- mods 层：编译全部扩展（QEMU arm64 较慢，属预期） ----
+      - name: Build mods
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --provenance=false --sbom=false \
+            --build-arg PARENT_IMAGE=${{ steps.parent.outputs.parent }} \
+            --build-arg EXT_DIR=${{ steps.parent.outputs.ext_dir }} \
+            --file Dockerfiles/mods/Dockerfile-${{ matrix.version }} \
+            --tag ${{ env.IMAGE }}:${{ matrix.version }}-mods \
+            --push Dockerfiles/mods
+
+      # ---- prod 层：composer + 运行时收尾 ----
+      - name: Build prod
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --provenance=false --sbom=false \
+            --build-arg PARENT_IMAGE=${{ env.IMAGE }}:${{ matrix.version }}-mods \
+            --file Dockerfiles/prod/Dockerfile-${{ matrix.version }} \
+            --tag ${{ env.IMAGE }}:${{ matrix.version }}-prod \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --push Dockerfiles/prod

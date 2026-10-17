@@ -1,0 +1,5 @@
+# 统一 LF：sh 脚本在容器内执行不容忍 CRLF
+* text=auto
+*.sh text eol=lf
+Dockerfiles/** text eol=lf
+*.yml text eol=lf
