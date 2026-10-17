@@ -1,0 +1,23 @@
+# iFreePanel FastAPI 运行时底座（预烘焙 fastapi + uvicorn，目标机离线可用）
+# 应用镜像在此底座上叠加构建：FROM ghcr.io/ifreepanel/python-fastapi:3.15
+# Python 3.15（2026-10 发布）+ 最新版 FastAPI/uvicorn
+FROM python:3.15-slim
+
+LABEL org.opencontainers.image.title="iFreePanel python-fastapi" \
+      org.opencontainers.image.description="FastAPI + uvicorn runtime base (python 3.15)" \
+      org.opencontainers.image.source="https://github.com/iFreePanel/ifreepanel-php"
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# 运行时底座：只装框架与服务器，应用依赖由应用镜像构建期叠加。
+# uvicorn[standard] 含 C 扩展（uvloop/httptools/websockets/watchfiles），
+# 新 Python 版本发布初期可能缺 cp315 轮子 —— 失败时退回纯 Python 的 uvicorn 核心。
+RUN (pip install --no-cache-dir fastapi "uvicorn[standard]" \
+     || pip install --no-cache-dir fastapi uvicorn) \
+    && rm -rf /tmp/* /root/.cache
+
+WORKDIR /app
+EXPOSE 8000
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
