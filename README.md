@@ -1,10 +1,12 @@
 # ifree-images
 
-iFreePanel 的 PHP-FPM 多版本镜像构建仓库（6 LTS × amd64/arm64）。基础配方基于 `linuxeye/docker-php-fpm`（MIT），在其上做了参数化与容器内配置定制。
+iFreePanel 的自建容器镜像仓库：**PHP-FPM 多版本运行时**（6 LTS）与 **Python-FastAPI 运行时底座**，全部 linux/amd64 + linux/arm64 双架构。
 
-## 产物
+## 产物一览
 
-`ghcr.io/<仓库owner>/php-fpm:{版本}-base / -mods / -prod`（linux/amd64 + linux/arm64）
+### PHP-FPM —— `ghcr.io/iFreePanel/php-fpm:{版本}-prod`
+
+基础配方基于 `linuxeye/docker-php-fpm`（MIT），在其上做了参数化与容器内配置定制。
 
 | 版本 | base 层来源 | 说明 |
 |---|---|---|
@@ -13,35 +15,47 @@ iFreePanel 的 PHP-FPM 多版本镜像构建仓库（6 LTS × amd64/arm64）。�
 
 三层语义（继承上游）：**base** = PHP 核心；**mods** = 预编译全部扩展（~70 个）；**prod** = composer + 运行时收尾。iFreePanel 面板与离线包只用 `-prod`。
 
+### Python-FastAPI —— `ghcr.io/iFreePanel/python-fastapi:3.15`（及 `latest`）
+
+Python 3.15 slim 底座，预烘焙最新版 FastAPI + uvicorn（含 standard 扩展，C 扩展轮子缺失时自动退回纯 Python 核心）。目标机零联网，应用镜像在此底座上叠加构建：
+
+```dockerfile
+FROM ghcr.io/ifreepanel/python-fastapi:3.15
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
 ## CI（GitHub Actions）
 
-`.github/workflows/build.yml`：
-- 手动触发（`workflow_dispatch`，可传 versions 过滤，如 `8.5 8.4`）或推 tag `php-v*` 全量构建
-- buildx + QEMU 双架构；`GITHUB_TOKEN` 天然有 `packages:write`，无需配置 secret
-- mods 层 `EXT_DIR` 从父镜像运行时动态解析（与上游构建逻辑一致）
+- `build.yml`（PHP）：手动触发（可传 versions 过滤，如 `8.5 8.4`）或推 tag `php-v*` 全量；6 版本矩阵并行，`fail-fast: false` 互不阻塞
+- `build-python.yml`（Python）：手动触发（versions 过滤）或推 tag `py-v*`；`3.15` 同时更新 `latest`
+- 均为 buildx + QEMU 双架构；`GITHUB_TOKEN` 天然有 `packages:write`，无需配置 secret
+- PHP mods 层 `EXT_DIR` 从父镜像运行时动态解析（与上游构建逻辑一致）
 
-注意：mods 层在 QEMU 上编译 arm64 较慢（单版本可达数十分钟），属预期；`fail-fast: false` 各版本互不阻塞。
+注意：PHP mods 层在 QEMU 上编译 arm64 较慢（单版本 2 小时量级），属预期。
 
 ## 使用
 
 ```bash
-# 1. 在 GitHub 建仓库（名随意，如 ifree-images），push 本目录
-# 2. Actions → build-php → Run workflow（versions 填 8.5 先试一个）
-# 3. 首次推送后：GitHub → Packages → php-fpm → Package settings → Public
-# 4. 拉取验证
-docker pull ghcr.io/<owner>/php-fpm:8.5-prod
-docker run --rm ghcr.io/<owner>/php-fpm:8.5-prod php -m
+docker pull ghcr.io/ifreepanel/php-fpm:8.5-prod
+docker run --rm ghcr.io/ifreepanel/php-fpm:8.5-prod php -m
+
+docker pull ghcr.io/ifreepanel/python-fastapi:3.15
 ```
 
-本地调试单版本：`sh build-local.sh 8.5 amd64`（先把脚本内 IMAGE 换成你的命名空间）。
+国内在线机可走加速前缀：`ghcr.1ms.run/ifreepanel/...`（或 `ghcr.nju.edu.cn`）。
+
+本地调试单版本 PHP：`sh build-local.sh 8.5 amd64`（先把脚本内 IMAGE 换成你的命名空间）。
 
 ## 与 iFreePanel 的衔接
 
-- `pull-images.sh` 镜像名切换：`bypanel/php-fpm:{v}-prod` → `ghcr.io/<owner>/php-fpm:{v}-prod`
+- `pull-images.sh` 镜像名切换：`bypanel/php-fpm:{v}-prod` → `ghcr.io/ifreepanel/php-fpm:{v}-prod`；Python 侧同理指向 `python-fastapi:3.15`
 - 扩展矩阵事实源（`php-extension-matrix.json`）继续从 Dockerfiles/mods 解析，扩展增删改本仓库 Dockerfile 即可，一份文件喂构建 + 面板 UI
 - 老版本 5.3/5.4/5.5 等不在 CI 矩阵，需要时把对应 Dockerfile 与版本加回
 
 ## 溯源
 
-- 构建源：linuxeye/docker-php-fpm @ 25387ab（2026-09-09），MIT License（见 LICENSE.md）
+- PHP 构建源：linuxeye/docker-php-fpm @ 25387ab（2026-09-09），MIT License（见 LICENSE.md）
 - 定制点：FROM 参数化（ARG PARENT_IMAGE）、容器内用户组与配置文件名调整、labels 指向本仓库
