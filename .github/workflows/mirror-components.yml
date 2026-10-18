@@ -1,0 +1,68 @@
+name: mirror-components
+
+# 基础组件官方镜像 → ghcr.io/<owner> 命名空间（crane copy 原样搬运，保留多架构清单）
+#
+# 组件矩阵（2026-10-18 拍板）：
+#   caddy       latest            web/edge 唯一轨（自动 SSL）
+#   mariadb     12.3 / 11.8       最新 LTS + 次新 LTS（pull-images.sh 备胎策略对齐）
+#   postgresql  18-alpine
+#   redis       8.8-alpine
+#
+# 说明：
+#   - 只做 copy，不做任何改动/重建 —— 上游 tag 是什么，交付的就是什么；
+#   - crane copy 搬运整个 manifest list（amd64 + arm64 + 其他架构原样保留）；
+#   - 每周一自动刷新一次，跟进上游 tag 漂移；也可手动 dispatch。
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 2 * * 1"
+  push:
+    paths:
+      - ".github/workflows/mirror-components.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - src: docker.io/library/caddy:latest
+            dst: caddy:latest
+          - src: docker.io/library/mariadb:12.3
+            dst: mariadb:12.3
+          - src: docker.io/library/mariadb:11.8
+            dst: mariadb:11.8
+          - src: docker.io/library/postgres:18-alpine
+            dst: postgresql:18-alpine
+          - src: docker.io/library/redis:8.8-alpine
+            dst: redis:8.8-alpine
+    steps:
+      - name: Install crane
+        run: |
+          curl -fsSL -o /tmp/crane.tar.gz \
+            https://github.com/google/go-containerregistry/releases/latest/download/go-containerregistry_Linux_x86_64.tar.gz
+          tar -xzf /tmp/crane.tar.gz -C /tmp crane
+          /tmp/crane version
+
+      - name: Login ghcr.io
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | /tmp/crane auth login ghcr.io \
+            -u "${{ github.repository_owner }}" --password-stdin
+
+      - name: Copy image
+        env:
+          SRC: ${{ matrix.src }}
+          OWNER_LC: ${{ github.repository_owner }}
+          DST: ${{ matrix.dst }}
+        run: |
+          OWNER_LC=$(printf '%s' "${OWNER_LC}" | tr '[:upper:]' '[:lower:]')
+          DEST="ghcr.io/${OWNER_LC}/${DST}"
+          echo "copy ${SRC} -> ${DEST}"
+          /tmp/crane copy "${SRC}" "${DEST}"
+          /tmp/crane manifest "${DEST}" | head -c 300

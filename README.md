@@ -1,6 +1,6 @@
 # ifree-images
 
-iFreePanel 的自建容器镜像仓库：**PHP-FPM 多版本运行时**（6 LTS）与 **Python-FastAPI 运行时底座**，全部 linux/amd64 + linux/arm64 双架构。
+iFreePanel 的自建容器镜像仓库：**PHP-FPM 多版本运行时**（6 LTS）、**Python-FastAPI 运行时底座**与**基础组件镜像**，全部 linux/amd64 + linux/arm64 双架构。
 
 ## 产物一览
 
@@ -27,10 +27,25 @@ COPY . .
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
+### 基础组件 —— `ghcr.io/iFreePanel/{caddy|mariadb|postgresql|redis}:{tag}`
+
+官方镜像经 `crane copy` 原样搬运（保留完整多架构清单，零改动零重建），组件矩阵与 iFreePanel 首发组件收敛决策对齐：
+
+| 镜像 | 源 tag | 角色 |
+|---|---|---|
+| `caddy:latest` | caddy:latest | web/edge 唯一轨（自动 SSL） |
+| `mariadb:12.3` | mariadb:12.3 | 数据库主力（最新 LTS，社区维护至 2029） |
+| `mariadb:11.8` | mariadb:11.8 | 次新 LTS 备胎（pull-images.sh 软性预拉） |
+| `postgresql:18-alpine` | postgres:18-alpine | PostgreSQL 站点 |
+| `redis:8.8-alpine` | redis:8.8-alpine | 缓存 |
+
+`mirror-components.yml` 每周一自动刷新跟进上游 tag 漂移。
+
 ## CI（GitHub Actions）
 
 - `build.yml`（PHP）：手动触发（可传 versions 过滤，如 `8.5 8.4`）或推 tag `php-v*` 全量；6 版本矩阵并行，`fail-fast: false` 互不阻塞
 - `build-python.yml`（Python）：手动触发（versions 过滤）或推 tag `py-v*`；`3.15` 同时更新 `latest`
+- `mirror-components.yml`（基础组件）：crane copy 官方镜像入命名空间；手动触发 / 每周一定时 / 改动本文件触发
 - 均为 buildx + QEMU 双架构；`GITHUB_TOKEN` 天然有 `packages:write`，无需配置 secret
 - PHP mods 层 `EXT_DIR` 从父镜像运行时动态解析（与上游构建逻辑一致）
 
