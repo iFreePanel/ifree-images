@@ -8,10 +8,14 @@ iFreePanel 的自建容器镜像仓库：**PHP-FPM 多版本运行时**（6 LTS�
 
 基础配方基于 `linuxeye/docker-php-fpm`（MIT），在其上做了参数化与容器内配置定制。
 
-| 版本 | base 层来源 | 说明 |
+| 版本 | 状态 | base 层来源 |
 |---|---|---|
-| 8.1 / 8.2 / 8.4 / 8.5 | 官方 `php:{v}-fpm-bookworm` | 全链自主，无上游依赖 |
-| 5.6 / 7.4 | linuxeye 私造基础镜像（stretch/buster），CI 中 crane copy 导入 | 老版本基础层如实保留上游依赖，mods/prod 自主 |
+| 8.2 / 8.4 / 8.5 | **受支持**（每周六自动重建跟进上游补丁） | 官方 `php:{v}-fpm-bookworm` 全链自主 |
+| 8.1 | legacy（EOL，php2shell 起下架，不可自动修复） | 官方 bookworm，存档不再更新 |
+| 5.6 / 7.4 | legacy（EOL + linuxeye 基础层冻结，**无法修复安全漏洞**） | linuxeye 私造基础镜像（stretch/buster） |
+
+> 2026-10-24 php2shell（CVE-2026-109618/109619）起，支持矩阵收敛为 8.2/8.4/8.5。
+> legacy 镜像保留在 GHCR 仅供离线救急/历史兼容，**不要用于互联网生产环境**。
 
 三层语义（继承上游）：**base** = PHP 核心；**mods** = 预编译全部扩展（~70 个）；**prod** = composer + 运行时收尾。iFreePanel 面板与离线包只用 `-prod`。
 
@@ -43,9 +47,11 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ## CI（GitHub Actions）
 
-- `build.yml`（PHP）：手动触发（可传 versions 过滤，如 `8.5 8.4`）或推 tag `php-v*` 全量；6 版本矩阵并行，`fail-fast: false` 互不阻塞
+- `build.yml`（PHP）：**每周六 02:00 UTC 自动重建受支持版本**（浮动 base 吃上游补丁）；手动 dispatch 可传 versions 过滤或点名 legacy 版本应急；推 tag `php-v*` 全量；`fail-fast: false` 互不阻塞
 - `build-python.yml`（Python）：手动触发（versions 过滤）或推 tag `py-v*`；`3.15` 同时更新 `latest`
 - `mirror-components.yml`（基础组件）：crane copy 官方镜像入命名空间；手动触发 / 每周一定时 / 改动本文件触发
+
+**漏洞响应 SOP**：关注 php.net 安全公告 → dispatch build.yml 传受影响版本 → 当天出新镜像 → 面板端 detect `php -v` 补丁号对比修复版本，提示已部署站点重拉。
 - 均为 buildx + QEMU 双架构；`GITHUB_TOKEN` 天然有 `packages:write`，无需配置 secret
 - PHP mods 层 `EXT_DIR` 从父镜像运行时动态解析（与上游构建逻辑一致）
 

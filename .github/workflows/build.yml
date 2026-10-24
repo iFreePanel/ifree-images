@@ -1,6 +1,16 @@
 name: build-php
 
+# 更新策略（2026-10-24 定稿，php2shell 事件后）：
+#   1. 每周六自动重建全部受支持版本 —— base FROM php:{v}-fpm-bookworm 为浮动 tag，
+#      重跑即吃上游补丁版（php.net 常规月更 + 安全事件随时发版，周更是响应上限 7 天）
+#   2. 安全应急：手动 dispatch 传受影响版本号（如 "8.4"），当天出镜像
+#   3. 5.6/7.4/8.1 已从支持矩阵下架（EOL 不可修复，php2shell 起），
+#      手动 dispatch 仍可点名重建（保留 legacy 导入步骤），但不再自动跟进
+#   4. 组件镜像（caddy/mariadb/postgres/redis）由 mirror-components.yml 每周一刷新
+
 on:
+  schedule:
+    - cron: "0 2 * * 6"   # 每周六 02:00 UTC（北京 10:00）
   workflow_dispatch:
     inputs:
       versions:
@@ -24,7 +34,7 @@ jobs:
     steps:
       - id: set
         run: |
-          ALL='["5.6","7.4","8.1","8.2","8.4","8.5"]'
+          ALL='["8.2","8.4","8.5"]'   # 受支持矩阵；5.6/7.4/8.1 已下架（可手动点名应急重建）
           INPUT="${{ github.event.inputs.versions }}"
           if [ "${{ github.event_name }}" = "push" ] || [ -z "$INPUT" ]; then
             echo "versions=$ALL" >> "$GITHUB_OUTPUT"
@@ -56,7 +66,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ---- 5.6/7.4：上游私造基础镜像导入自家 GHCR（crane copy 保留多架构） ----
+      # ---- 5.6/7.4：legacy 应急通道（不在自动矩阵，手动点名时才走；上游 linuxeye 已冻结） ----
       - name: Import legacy custom base (5.6/7.4)
         if: matrix.version == '5.6' || matrix.version == '7.4'
         run: |
