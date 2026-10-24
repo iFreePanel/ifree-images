@@ -1,0 +1,77 @@
+name: watch-upstream-php
+
+# 上游 PHP 镜像监视器：官方 php:{v}-fpm-bookworm 的 digest 一变（= 上游出了补丁版），
+# 自动触发 build.yml 重建对应版本。从 php.net 发版到我们镜像更新，全程无人参与。
+#
+# 逻辑：
+#   1. 查 Docker Hub 上 8.2/8.4/8.5 三个浮动 tag 的当前 digest
+#   2. 与上次缓存的 digest 对比
+#   3. 有变化 → dispatch build.yml（跳过条件：已有 build-php 在跑，避免重复）
+#   4. 无变化 → 仅刷新缓存
+#
+# 语义：这是「周更 cron」之外的应急加速器——php2shell 级别的紧急补丁
+# 通常几小时内就会反映到官方镜像，本监视器把响应时间从最长 7 天压到 ~6 小时。
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"   # 每 6 小时
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch upstream digests
+        run: |
+          for v in 8.2 8.4 8.5; do
+            d=$(curl -s "https://hub.docker.com/v2/repositories/library/php/tags/${v}-fpm-bookworm" | jq -r '.digest')
+            echo "${v}=${d}" >> now.env
+          done
+          cat now.env
+
+      - name: Restore previous digests
+        uses: actions/cache/restore@v4
+        with:
+          path: prev.env
+          key: php-upstream-digests-${{ github.run_id }}
+          restore-keys: |
+            php-upstream-digests-
+
+      - name: Compare and dispatch rebuild
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          touch prev.env
+          CHANGED=""
+          for v in 8.2 8.4 8.5; do
+            now=$(grep "^${v}=" now.env | cut -d= -f2)
+            prev=$(grep "^${v}=" prev.env | cut -d= -f2)
+            if [ -n "$now" ] && [ "$now" != "$prev" ]; then
+              CHANGED="$CHANGED $v"
+            fi
+          done
+          if [ -z "$CHANGED" ]; then
+            echo "no upstream change"
+            exit 0
+          fi
+          echo "upstream changed:$CHANGED"
+          # 已有 build-php 排队/在跑则不重复触发（本次仍会刷新缓存，下轮兜底）
+          ACTIVE=$(gh run list --workflow=build.yml --status queued --json id -q 'length' 2>/dev/null || echo 0)
+          RUNNING=$(gh run list --workflow=build.yml --status in_progress --json id -q 'length' 2>/dev/null || echo 0)
+          if [ "$((ACTIVE + RUNNING))" -gt 0 ]; then
+            echo "build-php already active, skip dispatch"
+            exit 0
+          fi
+          gh workflow run build.yml -f versions "$CHANGED"
+          echo "dispatched build.yml for:$CHANGED"
+
+      - name: Save current digests
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: now.env
+          key: php-upstream-digests-${{ github.run_id }}
