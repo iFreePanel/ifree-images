@@ -51,7 +51,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 - `build-python.yml`（Python）：手动触发（versions 过滤）或推 tag `py-v*`；`3.15` 同时更新 `latest`
 - `mirror-components.yml`（基础组件）：crane copy 官方镜像入命名空间；手动触发 / 每周一定时 / 改动本文件触发
 
-**漏洞响应 SOP**：关注 php.net 安全公告 → dispatch build.yml 传受影响版本 → 当天出新镜像 → 面板端 detect `php -v` 补丁号对比修复版本，提示已部署站点重拉。
+**漏洞响应 SOP 与完整更新策略**：见 [docs/image-update-policy.md](docs/image-update-policy.md)（上游监视器 ~6h 自动响应 + 周更兜底 + 手动应急 + 官方缓解措施）。
 - 均为 buildx + QEMU 双架构；`GITHUB_TOKEN` 天然有 `packages:write`，无需配置 secret
 - PHP mods 层 `EXT_DIR` 从父镜像运行时动态解析（与上游构建逻辑一致）
 
