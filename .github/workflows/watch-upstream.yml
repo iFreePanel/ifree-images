@@ -82,7 +82,10 @@ jobs:
             exit 0
           fi
 
-          if ! gh workflow run build.yml -R "$GITHUB_REPOSITORY" -f versions "$CHANGED"; then
+          # 注意：-f 必须是单个 "key=value" 参数。原版写 `-f versions "$CHANGED"`
+          # 会把 versions 当 flag 值、changelog 当第二个位置参数 → "accepts at most
+          # 1 arg(s), received 2" → exit 1，dispatch 从未发出。
+          if ! gh workflow run build.yml -R "$GITHUB_REPOSITORY" -f "versions=$CHANGED"; then
             echo "::warning::dispatch build.yml failed, digests not saved, will retry next cycle"
             exit 1
           fi
