@@ -5,12 +5,21 @@ name: watch-upstream-php
 #
 # 逻辑：
 #   1. 查 Docker Hub 上 8.2/8.4/8.5 三个浮动 tag 的当前 digest
-#   2. 与上次缓存的 digest 对比
-#   3. 有变化 → dispatch build.yml（跳过条件：已有 build-php 在跑，避免重复）
-#   4. 无变化 → 仅刷新缓存
+#   2. 与仓库内 .upstream-digests.env 的上次记录对比
+#   3. 有变化 → dispatch build.yml（已有 build-php 在跑则跳过，等下轮重判），
+#      成功后把新 digest 提交回仓库
+#   4. 无变化 → 什么都不做
 #
 # 语义：这是「周更 cron」之外的应急加速器——php2shell 级别的紧急补丁
 # 通常几小时内就会反映到官方镜像，本监视器把响应时间从最长 7 天压到 ~6 小时。
+#
+# 2026-11-08 重构（原版 42/42 全失败的根因，两个叠加）：
+#   a) job 没有 checkout，gh 靠本地 git remote 反推仓库 → "failed to run git:
+#      not a git repository"，dispatch 从未发出过；
+#   b) 依赖 actions/cache 存 digest，但缓存从未命中（restore 恒 miss）→
+#      每轮都误判三个版本全变。改为状态落仓库文件，git log 自带审计。
+#   状态更新纪律：只有 dispatch 成功才写 .upstream-digests.env；
+#   build 在跑 / dispatch 失败都不写，留到下轮重判，变更不被吞掉。
 
 on:
   schedule:
@@ -25,6 +34,9 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Fetch upstream digests
         run: |
           for v in 8.2 8.4 8.5; do
@@ -33,23 +45,15 @@ jobs:
           done
           cat now.env
 
-      - name: Restore previous digests
-        uses: actions/cache/restore@v4
-        with:
-          path: prev.env
-          key: php-upstream-digests-${{ github.run_id }}
-          restore-keys: |
-            php-upstream-digests-
-
       - name: Compare and dispatch rebuild
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          touch prev.env
+          touch .upstream-digests.env
           CHANGED=""
           for v in 8.2 8.4 8.5; do
             now=$(grep "^${v}=" now.env | cut -d= -f2)
-            prev=$(grep "^${v}=" prev.env | cut -d= -f2)
+            prev=$(grep "^${v}=" .upstream-digests.env | cut -d= -f2)
             if [ -n "$now" ] && [ "$now" != "$prev" ]; then
               CHANGED="$CHANGED $v"
             fi
@@ -59,19 +63,32 @@ jobs:
             exit 0
           fi
           echo "upstream changed:$CHANGED"
-          # 已有 build-php 排队/在跑则不重复触发（本次仍会刷新缓存，下轮兜底）
-          ACTIVE=$(gh run list --workflow=build.yml --status queued --json id -q 'length' 2>/dev/null || echo 0)
-          RUNNING=$(gh run list --workflow=build.yml --status in_progress --json id -q 'length' 2>/dev/null || echo 0)
+
+          # 已有 build-php 排队/在跑则不重复触发（本轮不写状态，下轮重判）
+          ACTIVE=$(gh run list -R "$GITHUB_REPOSITORY" --workflow=build.yml --status queued --json id -q 'length' 2>/dev/null || echo 0)
+          RUNNING=$(gh run list -R "$GITHUB_REPOSITORY" --workflow=build.yml --status in_progress --json id -q 'length' 2>/dev/null || echo 0)
           if [ "$((ACTIVE + RUNNING))" -gt 0 ]; then
             echo "build-php already active, skip dispatch"
             exit 0
           fi
-          gh workflow run build.yml -f versions "$CHANGED"
+
+          if ! gh workflow run build.yml -R "$GITHUB_REPOSITORY" -f versions "$CHANGED"; then
+            echo "::warning::dispatch build.yml failed, digests not saved, will retry next cycle"
+            exit 1
+          fi
           echo "dispatched build.yml for:$CHANGED"
 
-      - name: Save current digests
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: now.env
-          key: php-upstream-digests-${{ github.run_id }}
+      - name: Save current digests to repo
+        run: |
+          cp now.env .upstream-digests.env
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .upstream-digests.env
+          if git diff --cached --quiet; then
+            echo "digests unchanged, nothing to commit"
+            exit 0
+          fi
+          git commit -m "watch: update upstream digests"
+          if ! git push; then
+            echo "::warning::git push failed (branch protection or token policy); digests not persisted, next cycle may re-dispatch"
+          fi
