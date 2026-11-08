@@ -27,7 +27,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # Save 步骤要 commit + push 状态文件，read 会导致状态永不落盘
   actions: write
 
 jobs:
@@ -41,11 +41,18 @@ jobs:
         run: |
           for v in 8.2 8.4 8.5; do
             d=$(curl -s "https://hub.docker.com/v2/repositories/library/php/tags/${v}-fpm-bookworm" | jq -r '.digest')
-            echo "${v}=${d}" >> now.env
+            # 限流/抖动时 digest 会是 null 或空：不写 now.env，本轮跳过该版本，
+            # 否则 null 会与真实 digest 不等 → 误 dispatch 全量重建，且 null 污染状态文件。
+            if [ -n "$d" ] && [ "$d" != "null" ]; then
+              echo "${v}=${d}" >> now.env
+            else
+              echo "::warning::failed to fetch digest for ${v} (Docker Hub rate limited?); skipped this cycle"
+            fi
           done
           cat now.env
 
       - name: Compare and dispatch rebuild
+        id: compare
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -60,15 +67,18 @@ jobs:
           done
           if [ -z "$CHANGED" ]; then
             echo "no upstream change"
+            echo "dispatched=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "upstream changed:$CHANGED"
 
-          # 已有 build-php 排队/在跑则不重复触发（本轮不写状态，下轮重判）
+          # 已有 build-php 排队/在跑则不重复触发；
+          # dispatched=false 让 Save 步骤跳过 —— digest 不落盘，下轮重判，变更不被吞。
           ACTIVE=$(gh run list -R "$GITHUB_REPOSITORY" --workflow=build.yml --status queued --json id -q 'length' 2>/dev/null || echo 0)
           RUNNING=$(gh run list -R "$GITHUB_REPOSITORY" --workflow=build.yml --status in_progress --json id -q 'length' 2>/dev/null || echo 0)
           if [ "$((ACTIVE + RUNNING))" -gt 0 ]; then
-            echo "build-php already active, skip dispatch"
+            echo "build-php already active, skip dispatch (digests not saved, will re-judge next cycle)"
+            echo "dispatched=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -77,8 +87,11 @@ jobs:
             exit 1
           fi
           echo "dispatched build.yml for:$CHANGED"
+          echo "dispatched=true" >> "$GITHUB_OUTPUT"
 
+      # 只有真 dispatch 成功才保存状态（no change / skip / dispatch 失败都不写）。
       - name: Save current digests to repo
+        if: steps.compare.outputs.dispatched == 'true'
         run: |
           cp now.env .upstream-digests.env
           git config user.name "github-actions[bot]"
