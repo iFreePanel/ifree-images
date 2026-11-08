@@ -56,6 +56,51 @@ RUN set -eux \
 
 
 ###
+### Compile patched PHP core (php2shell: CVE-2026-109618 / CVE-2026-109619)
+###
+# 官方 8.1 已 EOL 且 Docker 镜像永不更新，php.net 为 8.1 发布了最小 source backport：
+#   分支 PHP-8.1-CVE-2026-109618-109619，头提交 1d7dec178a094e6e75b229ce22754045f8c6070a
+#   （"Avoid state corruption via bailout for 8.1"，基于 8.1.34，不动扩展 ABI）。
+# 此处整体编译该分支快照覆盖 /usr/local，configure 选项复用底座原值
+# （php-config --configure-options），镜像布局不变，mods/prod 层无感。
+# 手工通道：dispatch build.yml 传 versions="8.1"（watch-upstream 不覆盖本版本）。
+RUN set -eux \
+	&& DEBIAN_FRONTEND=noninteractive apt-get update \
+	&& DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --no-install-suggests \
+		bison \
+		ca-certificates \
+		curl \
+		gcc \
+		make \
+		pkg-config \
+		re2c \
+		autoconf \
+		xz-utils \
+		libargon2-dev \
+		libcurl4-openssl-dev \
+		libedit-dev \
+		libffi-dev \
+		libonig-dev \
+		libreadline-dev \
+		libsodium-dev \
+		libsqlite3-dev \
+		libssl-dev \
+		libxml2-dev \
+		zlib1g-dev \
+	&& rm -rf /var/lib/apt/lists/* \
+	&& curl -sSfL "https://codeload.github.com/php/php-src/tar.gz/1d7dec178a094e6e75b229ce22754045f8c6070a" -o /tmp/php-src.tar.gz \
+	&& mkdir -p /tmp/php-src \
+	&& tar -xzf /tmp/php-src.tar.gz -C /tmp/php-src --strip-components=1 \
+	&& cd /tmp/php-src \
+	&& ./buildconf --force \
+	&& set -f; ./configure $(php-config --configure-options); set +f \
+	&& make -j"$(getconf _NPROCESSORS_ONLN)" \
+	&& make install \
+	&& cd / && rm -rf /tmp/php-src /tmp/php-src.tar.gz \
+	&& php -v | grep -oE 'PHP\s[.0-9]+' | grep -oE '[.0-9]+' | grep '^8.1'
+
+
+###
 ### Configure
 ###
 RUN set -eux \

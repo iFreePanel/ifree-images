@@ -1,11 +1,16 @@
 name: build-php
 
-# 更新策略（2026-10-24 定稿，php2shell 事件后）：
+# 更新策略（2026-11-08 修订，php2shell CVE-2026-109618/109619 事件后）：
 #   1. 每周六自动重建全部受支持版本 —— base FROM php:{v}-fpm-bookworm 为浮动 tag，
 #      重跑即吃上游补丁版（php.net 常规月更 + 安全事件随时发版，周更是响应上限 7 天）
+#      watch-upstream 监视器把 8.2/8.4/8.5 的响应时间进一步压到 ~6 小时
 #   2. 安全应急：手动 dispatch 传受影响版本号（如 "8.4"），当天出镜像
-#   3. 5.6/7.4/8.1 已从支持矩阵下架（EOL 不可修复，php2shell 起），
-#      手动 dispatch 仍可点名重建（保留 legacy 导入步骤），但不再自动跟进
+#   3. EOL legacy（8.1/5.6，7.3 无免费补丁暂不建）：官方/上游永不更新，
+#      改走「补丁核重编译」手工通道 —— dispatch 传 "8.1" 或 "5.6"：
+#        8.1 = 官方最小 backport 分支快照（codeload 固定 1d7dec17）整体编译覆盖
+#        5.6 = 官方 5.6.40 tarball + sury 0261 移植补丁编译覆盖
+#      configure 选项复用底座原值，布局不变；每次需要新补丁时改 Dockerfile 里的
+#      补丁源再 dispatch。不再自动跟进，也不在 watch-upstream 覆盖范围内
 #   4. 组件镜像（caddy/mariadb/postgres/redis）由 mirror-components.yml 每周一刷新
 
 on:
@@ -66,7 +71,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ---- 5.6/7.4：legacy 应急通道（不在自动矩阵，手动点名时才走；上游 linuxeye 已冻结） ----
+      # ---- 5.6/7.4：legacy 底座导入（bypanel 已冻结，仅作 5.6 补丁核编译的母版 / 7.4 直接使用） ----
       - name: Import legacy custom base (5.6/7.4)
         if: matrix.version == '5.6' || matrix.version == '7.4'
         run: |
@@ -78,13 +83,18 @@ jobs:
           esac
           ./crane copy "$SRC" "$DST"
 
-      # ---- 8.x：base 层从官方 php:{v}-fpm-bookworm 自主构建 ----
-      - name: Build base (8.x)
-        if: startsWith(matrix.version, '8.')
+      # ---- 8.x + 5.6：base 层补丁核编译（CVE-2026-109618/109619，见各 Dockerfile 注释） ----
+      - name: Build base (5.6/8.x)
+        if: matrix.version == '5.6' || startsWith(matrix.version, '8.')
         run: |
+          EXTRA_ARGS=""
+          if [ "${{ matrix.version }}" = "5.6" ]; then
+            EXTRA_ARGS="--build-arg PARENT_IMAGE=${{ needs.config.outputs.image }}-5.6:stretch"
+          fi
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --provenance=false --sbom=false \
+            $EXTRA_ARGS \
             --file Dockerfiles/base/Dockerfile-${{ matrix.version }} \
             --tag ${{ needs.config.outputs.image }}:${{ matrix.version }}-base \
             --push Dockerfiles/base
@@ -95,7 +105,7 @@ jobs:
         run: |
           V=${{ matrix.version }}
           case "$V" in
-            5.6) PARENT=${{ needs.config.outputs.image }}-5.6:stretch ;;
+            5.6) PARENT=${{ needs.config.outputs.image }}:5.6-base ;;
             7.4) PARENT=${{ needs.config.outputs.image }}-7.4:buster ;;
             *)   PARENT=${{ needs.config.outputs.image }}:$V-base ;;
           esac
