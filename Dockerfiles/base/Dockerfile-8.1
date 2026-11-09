@@ -93,7 +93,7 @@ RUN set -eux \
 	&& tar -xzf /tmp/php-src.tar.gz -C /tmp/php-src --strip-components=1 \
 	&& cd /tmp/php-src \
 	&& ./buildconf --force \
-	&& set -f; ./configure $(php-config --configure-options); set +f \
+	&& ./configure $(php-config --configure-options) \
 	&& make -j"$(getconf _NPROCESSORS_ONLN)" \
 	&& make install \
 	&& cd / && rm -rf /tmp/php-src /tmp/php-src.tar.gz \

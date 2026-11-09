@@ -72,7 +72,11 @@ RUN set -eux \
 # "Avoid state corruption via bailout"（已验证对官方 tarball 干净套用），
 # configure 选项复用底座原值（php-config --configure-options），布局不变。
 # 手工通道：dispatch build.yml 传 versions="5.6"（watch-upstream 不覆盖本版本）。
-# 注：stretch 为 EOL 底座，curl 走 -k 以规避旧 CA 根证书过期问题。
+# 注 1：stretch 为 EOL 底座，curl 走 -k 以规避旧 CA 根证书过期问题。
+# 注 2：sury 补丁在包内路径是 debian/patches/xxx，解到 /tmp/patches 需 --strip-components=2。
+# 注 3：bypanel 底座 php-config 输出尾部带 CFLAGS/LDFLAGS/CPPFLAGS 三组含空格的值，
+#       直接 $(...) 展开会把 -fpic 当成独立参数（configure: unrecognized option）。
+#       故只取 CFLAGS= 之前的纯 -- 选项，三组 flags 单独以环境变量传入。
 RUN set -eux \
 	&& DEBIAN_FRONTEND=noninteractive apt-get update \
 	&& DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --no-install-suggests \
@@ -95,13 +99,17 @@ RUN set -eux \
 	&& curl -sSfkL "https://www.php.net/distributions/php-5.6.40.tar.xz" -o /tmp/php.tar.xz \
 	&& curl -sSfkL "https://packages.sury.org/php/pool/main/p/php5.6/php5.6_5.6.40-105+0~20261022.135+debian12~1.gbp37a17e.debian.tar.xz" -o /tmp/sury-debian.tar.xz \
 	&& mkdir -p /tmp/patches \
-	&& tar -xJf /tmp/sury-debian.tar.xz -C /tmp/patches --strip-components=1 \
+	&& tar -xJf /tmp/sury-debian.tar.xz -C /tmp/patches --strip-components=2 \
 		debian/patches/0261-Avoid-state-corruption-via-bailout.patch \
 	&& mkdir -p /tmp/php-src \
 	&& tar -xJf /tmp/php.tar.xz -C /tmp/php-src --strip-components=1 \
 	&& cd /tmp/php-src \
 	&& patch -p1 < /tmp/patches/0261-Avoid-state-corruption-via-bailout.patch \
-	&& set -f; ./configure $(php-config --configure-options); set +f \
+	&& CONF_OPTS="$(php-config --configure-options)" \
+	&& CFLAGS="-fstack-protector-strong -fpic -fpie -O2" \
+	   LDFLAGS="-Wl,-O1 -Wl,--hash-style=both -pie" \
+	   CPPFLAGS="-fstack-protector-strong -fpic -fpie -O2" \
+	   ./configure ${CONF_OPTS%% CFLAGS=*} \
 	&& make -j"$(getconf _NPROCESSORS_ONLN)" \
 	&& make install \
 	&& cd / && rm -rf /tmp/php-src /tmp/php.tar.xz /tmp/sury-debian.tar.xz /tmp/patches \
