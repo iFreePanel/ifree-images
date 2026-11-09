@@ -77,6 +77,11 @@ RUN set -eux \
 # 注 3：bypanel 底座 php-config 输出尾部带 CFLAGS/LDFLAGS/CPPFLAGS 三组含空格的值，
 #       直接 $(...) 展开会把 -fpic 当成独立参数（configure: unrecognized option）。
 #       故只取 CFLAGS= 之前的纯 -- 选项，三组 flags 单独以环境变量传入。
+# 注 4：必须装 libssl1.0-dev（OpenSSL 1.0.2 头），不能装 libssl-dev（stretch 上是 1.1.0）。
+#       PHP 5.6.40 的 ext/openssl 直接访问 X509/RSA/DSA/EVP_MD_CTX 等结构体成员，
+#       1.1 起这些结构体变为 opaque，编译报 "dereferencing pointer to incomplete type"
+#       （Run #11 在 ext/openssl/openssl.lo 处失败）。libcurl4-openssl-dev 的 Suggests
+#       本就是 libssl1.0-dev | libssl-dev，选 1.0 侧即还原底座当年的编译环境。
 RUN set -eux \
 	&& DEBIAN_FRONTEND=noninteractive apt-get update \
 	&& DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --no-install-suggests \
@@ -93,7 +98,7 @@ RUN set -eux \
 		libmcrypt-dev \
 		libpcre3-dev \
 		libreadline-dev \
-		libssl-dev \
+		libssl1.0-dev \
 		libxml2-dev \
 		zlib1g-dev \
 	&& curl -sSfkL "https://www.php.net/distributions/php-5.6.40.tar.xz" -o /tmp/php.tar.xz \
