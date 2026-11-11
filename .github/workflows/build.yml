@@ -5,9 +5,10 @@ name: build-php
 #      重跑即吃上游补丁版（php.net 常规月更 + 安全事件随时发版，周更是响应上限 7 天）
 #      watch-upstream 监视器把 8.2/8.4/8.5 的响应时间进一步压到 ~6 小时
 #   2. 安全应急：手动 dispatch 传受影响版本号（如 "8.4"），当天出镜像
-#   3. EOL legacy（8.1/5.6，7.3 无免费补丁暂不建）：官方/上游永不更新，
-#      改走「补丁核重编译」手工通道 —— dispatch 传 "8.1" 或 "5.6"：
+#   3. EOL legacy（8.1/5.6/7.4 走补丁核手工通道；7.3 有 sury 免费补丁暂未建）：
+#      官方/上游永不更新，改走「补丁核重编译」手工通道 —— dispatch 传版本号：
 #        8.1 = 官方最小 backport 分支快照（codeload 固定 1d7dec17）整体编译覆盖
+#        7.4 = 官方最小 backport 分支快照（codeload 固定 712e60f9）整体编译覆盖
 #        5.6 = 官方 5.6.40 tarball + sury 0261 移植补丁编译覆盖
 #      configure 选项复用底座原值，布局不变；每次需要新补丁时改 Dockerfile 里的
 #      补丁源再 dispatch。不再自动跟进，也不在 watch-upstream 覆盖范围内
@@ -71,7 +72,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ---- 5.6/7.4：legacy 底座导入（bypanel 已冻结，仅作 5.6 补丁核编译的母版 / 7.4 直接使用） ----
+      # ---- 5.6/7.4：legacy 底座导入（bypanel 已冻结，作两版补丁核编译的母版） ----
       - name: Import legacy custom base (5.6/7.4)
         if: matrix.version == '5.6' || matrix.version == '7.4'
         run: |
@@ -83,13 +84,15 @@ jobs:
           esac
           ./crane copy "$SRC" "$DST"
 
-      # ---- 8.x + 5.6：base 层补丁核编译（CVE-2026-109618/109619，见各 Dockerfile 注释） ----
-      - name: Build base (5.6/8.x)
-        if: matrix.version == '5.6' || startsWith(matrix.version, '8.')
+      # ---- 8.x + 5.6/7.4：base 层补丁核编译（CVE-2026-109618/109619，见各 Dockerfile 注释） ----
+      - name: Build base (5.6/7.4/8.x)
+        if: matrix.version == '5.6' || matrix.version == '7.4' || startsWith(matrix.version, '8.')
         run: |
           EXTRA_ARGS=""
           if [ "${{ matrix.version }}" = "5.6" ]; then
             EXTRA_ARGS="--build-arg PARENT_IMAGE=${{ needs.config.outputs.image }}-5.6:stretch"
+          elif [ "${{ matrix.version }}" = "7.4" ]; then
+            EXTRA_ARGS="--build-arg PARENT_IMAGE=${{ needs.config.outputs.image }}-7.4:buster"
           fi
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
@@ -106,7 +109,7 @@ jobs:
           V=${{ matrix.version }}
           case "$V" in
             5.6) PARENT=${{ needs.config.outputs.image }}:5.6-base ;;
-            7.4) PARENT=${{ needs.config.outputs.image }}-7.4:buster ;;
+            7.4) PARENT=${{ needs.config.outputs.image }}:7.4-base ;;
             *)   PARENT=${{ needs.config.outputs.image }}:$V-base ;;
           esac
           docker pull --platform linux/amd64 "$PARENT"
