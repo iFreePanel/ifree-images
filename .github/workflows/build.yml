@@ -3,7 +3,7 @@ name: build-php
 # 更新策略（2026-11-08 修订，php2shell CVE-2026-109618/109619 事件后）：
 #   1. 每周六自动重建全部受支持版本 —— base FROM php:{v}-fpm-bookworm 为浮动 tag，
 #      重跑即吃上游补丁版（php.net 常规月更 + 安全事件随时发版，周更是响应上限 7 天）
-#      watch-upstream 监视器把 8.2/8.4/8.5 的响应时间进一步压到 ~6 小时
+#      watch-upstream 监视器把 8.2/8.4/8.5/8.6 的响应时间进一步压到 ~6 小时
 #   2. 安全应急：手动 dispatch 传受影响版本号（如 "8.4"），当天出镜像
 #   3. EOL legacy（8.1/5.6/7.4 走补丁核手工通道；7.3 有 sury 免费补丁暂未建）：
 #      官方/上游永不更新，改走「补丁核重编译」手工通道 —— dispatch 传版本号：
@@ -40,7 +40,7 @@ jobs:
     steps:
       - id: set
         run: |
-          ALL='["8.2","8.4","8.5"]'   # 受支持矩阵；5.6/7.4/8.1 已下架（可手动点名应急重建）
+          ALL='["8.2","8.4","8.5","8.6"]'   # 受支持矩阵；5.6/7.4/8.1 已下架（可手动点名应急重建）
           INPUT="${{ github.event.inputs.versions }}"
           if [ "${{ github.event_name }}" = "push" ] || [ -z "$INPUT" ]; then
             echo "versions=$ALL" >> "$GITHUB_OUTPUT"

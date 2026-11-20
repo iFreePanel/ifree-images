@@ -5,7 +5,7 @@ name: mirror-components
 # 组件矩阵（2026-10-18 拍板）：
 #   caddy       latest            web/edge 唯一轨（自动 SSL）
 #   mariadb     12.3 / 11.8       最新 LTS + 次新 LTS（pull-images.sh 备胎策略对齐）
-#   postgresql  18-alpine
+#   postgresql  18-alpine / 19-alpine
 #   redis       8.8-alpine
 #
 # 说明：
@@ -40,6 +40,8 @@ jobs:
             dst: mariadb:11.8
           - src: docker.io/library/postgres:18-alpine
             dst: postgresql:18-alpine
+          - src: docker.io/library/postgres:19-alpine
+            dst: postgresql:19-alpine
           - src: docker.io/library/redis:8.8-alpine
             dst: redis:8.8-alpine
     steps:
