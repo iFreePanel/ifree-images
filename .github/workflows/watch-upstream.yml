@@ -72,6 +72,30 @@ jobs:
           fi
           echo "upstream changed:$CHANGED"
 
+          # 8.6 暂缓 dispatch（2026-11-24）：官方 php:8.6 镜像已整体移除 PECL/PEAR
+          # （docker-library/php#1654，随 PIE RFC 永久移除），且 mods 层 20+ 个 PECL
+          # 扩展的稳定版截至 2026-11 尚无 8.6 兼容版本（redis/apcu/imagick/amqp/
+          # memcached/msgpack/xdebug 等编不过，仅 mongodb 稳定版可装）→ 补装 pecl
+          # 也白装。digest 照旧跟踪落盘，构建待扩展生态跟上后连 PIE 迁移一起恢复。
+          DEFERRED=" 8.6 "
+          FILTERED=""
+          for v in $CHANGED; do
+            case "$DEFERRED" in
+              *" $v "*)
+                echo "deferred build for:$v (8.6 extension ecosystem not ready, see 任务卡)"
+                ;;
+              *)
+                FILTERED="$FILTERED $v"
+                ;;
+            esac
+          done
+          CHANGED="$FILTERED"
+          if [ -z "$CHANGED" ]; then
+            echo "all changed versions are deferred; digests still saved"
+            echo "dispatched=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # 已有 build-php 排队/在跑则不重复触发；
           # dispatched=false 让 Save 步骤跳过 —— digest 不落盘，下轮重判，变更不被吞。
           ACTIVE=$(gh run list -R "$GITHUB_REPOSITORY" --workflow=build.yml --status queued --json id -q 'length' 2>/dev/null || echo 0)

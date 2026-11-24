@@ -47,7 +47,8 @@ jobs:
     steps:
       - name: Install crane
         run: |
-          curl -fsSL -o /tmp/crane.tar.gz \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 \
+            -o /tmp/crane.tar.gz \
             https://github.com/google/go-containerregistry/releases/latest/download/go-containerregistry_Linux_x86_64.tar.gz
           tar -xzf /tmp/crane.tar.gz -C /tmp crane
           /tmp/crane version
