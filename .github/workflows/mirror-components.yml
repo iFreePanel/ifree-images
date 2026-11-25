@@ -38,12 +38,15 @@ jobs:
             dst: mariadb:12.3
           - src: docker.io/library/mariadb:11.8
             dst: mariadb:11.8
+          # 2026-11-25 拍板：组件 tag 一律纯数字，-alpine 后缀停用。
+          # dst 用纯数字（我们命名空间），src 仍指上游 -alpine，避免与上游
+          # debian 版 postgres:18 / redis:8.8 混淆。旧 -alpine tag 停在 GHCR 不再刷新。
           - src: docker.io/library/postgres:18-alpine
-            dst: postgresql:18-alpine
+            dst: postgresql:18
           - src: docker.io/library/postgres:19-alpine
-            dst: postgresql:19-alpine
+            dst: postgresql:19
           - src: docker.io/library/redis:8.8-alpine
-            dst: redis:8.8-alpine
+            dst: redis:8.8
     steps:
       - name: Install crane
         run: |
