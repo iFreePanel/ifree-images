@@ -115,9 +115,13 @@ jobs:
           docker pull --platform linux/amd64 "$PARENT"
           EXT_DIR=$(docker run --rm --platform linux/amd64 --entrypoint=php "$PARENT" \
             -r 'echo ini_get("extension_dir");')
+          # 完整版本号（如 8.5.13）——prod 层打 org.opencontainers.image.version 标签用
+          PHP_FULL=$(docker run --rm --platform linux/amd64 --entrypoint=php "$PARENT" \
+            -r 'echo PHP_VERSION;')
           echo "parent=$PARENT"        >> "$GITHUB_OUTPUT"
           echo "ext_dir=$EXT_DIR"      >> "$GITHUB_OUTPUT"
-          echo "parent=$PARENT  ext_dir=$EXT_DIR"
+          echo "php_full=$PHP_FULL"    >> "$GITHUB_OUTPUT"
+          echo "parent=$PARENT  ext_dir=$EXT_DIR  php_full=$PHP_FULL"
 
       # ---- mods 层：编译全部扩展（QEMU arm64 较慢，属预期） ----
       - name: Build mods
@@ -141,4 +145,5 @@ jobs:
             --file Dockerfiles/prod/Dockerfile-${{ matrix.version }} \
             --tag ${{ needs.config.outputs.image }}:${{ matrix.version }}-prod \
             --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --label org.opencontainers.image.version=${{ steps.parent.outputs.php_full }} \
             --push Dockerfiles/prod
